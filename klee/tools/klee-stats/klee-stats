@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+# -*- encoding: utf-8 -*-
+
+# ===-- klee-stats --------------------------------------------------------===##
+# 
+#                      The KLEE Symbolic Virtual Machine
+# 
+#  This file is distributed under the University of Illinois Open Source
+#  License. See LICENSE.TXT for details.
+# 
+# ===----------------------------------------------------------------------===##
+
+"""Output statistics logged by Klee."""
+
+import os
+import sys
+import argparse
+import sqlite3
+
+try:
+    from tabulate import TableFormat, Line, DataRow, tabulate, _table_formats
+except:
+    print('Error: Package "tabulate" required for table formatting. '
+          'Please install it using "pip" or your package manager.'
+          'You can still use --grafana and --to-csv without tabulate.',
+          file=sys.stderr)
+
+Legend = [
+    ('Instrs', 'number of executed instructions'),
+    ('Time', 'total wall time (s)'),
+    ('TUser', 'total user time'),
+    ('ICov', 'instruction coverage in the LLVM bitcode (%)'),
+    ('BCov', 'branch coverage in the LLVM bitcode (%)'),
+    ('ICount', 'total static instructions in the LLVM bitcode'),
+    ('TSolver', 'time spent in the constraint solver'),
+    ('States', 'number of currently active states'),
+    ('Mem', 'megabytes of memory currently used'),
+    ('Queries', 'number of queries issued to STP'),
+    ('AvgQC', 'average number of query constructs per query'),
+    ('Tcex', 'time spent in the counterexample caching code'),
+    ('Tfork', 'time spent forking'),
+    ('TResolve', 'time spent in object resolution'),
+    ('QCexCMisses', 'Counterexample cache misses'),
+    ('QCexCHits', 'Counterexample cache hits'),
+]
+
+KleeTable = TableFormat(lineabove=Line("-", "-", "-", "-"),
+                        linebelowheader=Line("-", "-", "-", "-"),
+                        linebetweenrows=None,
+                        linebelow=Line("-", "-", "-", "-"),
+                        headerrow=DataRow("|", "|", "|"),
+                        datarow=DataRow("|", "|", "|"),
+                        padding=0,
+                        with_header_hide=None)
+
+def getInfoFile(path):
+    """Return the path to info"""
+    return os.path.join(path, 'info')
+
+def getLogFile(path):
+    """Return the path to run.stats."""
+    return os.path.join(path, 'run.stats')
+
+class LazyEvalList:
+    """Store all the lines in run.stats and eval() when needed."""
+    def __init__(self, fileName):
+        # The first line in the records contains headers.
+      self.conn = sqlite3.connect(fileName)
+      self.c = self.conn.cursor()
+      self.c.execute("SELECT * FROM stats ORDER BY Instructions DESC LIMIT 1")
+      self.line = self.c.fetchone()
+
+    def aggregateRecords(self):
+      memC = self.conn.cursor()
+      memC.execute("SELECT max(MallocUsage) / 1024 / 1024, avg(MallocUsage) / 1024 / 1024 from stats")
+      maxMem, avgMem = memC.fetchone()
+
+      stateC = self.conn.cursor()
+      stateC.execute("SELECT max(NumStates), avg(NumStates) from stats")
+      maxStates, avgStates = stateC.fetchone()
+      return (maxMem, avgMem, maxStates, avgStates)
+
+    def getLastRecord(self):
+      return self.line
+
+def stripCommonPathPrefix(paths):
+    paths = map(os.path.normpath, paths)
+    paths = [p.split('/') for p in paths]
+    zipped = zip(*paths)
+    i = 0
+    for i, elts in enumerate(zipped):
+        if len(set(elts)) > 1:
+            break
+    return ['/'.join(p[i:]) for p in paths]
+
+def getKleeOutDirs(dirs):
+    kleeOutDirs = []
+    for dir in dirs:
+        if os.path.exists(os.path.join(dir, 'info')):
+            kleeOutDirs.append(dir)
+        else:
+            for root, subdirs, _ in os.walk(dir):
+                for d in subdirs:
+                    path = os.path.join(root, d)
+                    if os.path.exists(os.path.join(path, 'info')):
+                        kleeOutDirs.append(path)
+    return kleeOutDirs
+
+def getLabels(pr):
+    if pr == 'all':
+        labels = ('Path', 'Instrs', 'Time(s)', 'ICov(%)', 'BCov(%)', 'ICount',
+                  'TSolver(%)', 'States', 'maxStates', 'avgStates', 'Mem(MB)',
+                  'maxMem(MB)', 'avgMem(MB)', 'Queries', 'AvgQC', 'Tcex(%)',
+                  'Tfork(%)', 'TResolve(%)', 'QCexCMisses', 'QCexCHits')
+    elif pr == 'reltime':
+        labels = ('Path', 'Time(s)', 'TUser(%)', 'TSolver(%)',
+                  'Tcex(%)', 'Tfork(%)', 'TResolve(%)')
+    elif pr == 'abstime':
+        labels = ('Path', 'Time(s)', 'TUser(s)', 'TSolver(s)',
+                  'Tcex(s)', 'Tfork(s)', 'TResolve(s)')
+    elif pr == 'more':
+        labels = ('Path', 'Instrs', 'Time(s)', 'ICov(%)', 'BCov(%)', 'ICount',
+                  'TSolver(%)', 'States', 'maxStates', 'Mem(MB)', 'maxMem(MB)')
+    else:
+        labels = ('Path', 'Instrs', 'Time(s)', 'ICov(%)',
+                  'BCov(%)', 'ICount', 'TSolver(%)')
+    return labels
+
+
+def getRow(record, stats, pr):
+    """Compose data for the current run into a row."""
+    I, BFull, BPart, BTot, T, St, Mem, QTot, QCon,\
+        _, Treal, SCov, SUnc, _, Ts, Tcex, Tf, Tr, QCexMiss, QCexHits = record
+    maxMem, avgMem, maxStates, avgStates = stats
+
+    # special case for straight-line code: report 100% branch coverage
+    if BTot == 0:
+        BFull = BTot = 1
+
+    Ts, Tcex, Tf, Tr, T, Treal = [e / 1000000 for e in [Ts, Tcex, Tf, Tr, T, Treal]] #convert from microseconds
+    Mem = Mem / 1024 / 1024
+    AvgQC = int(QCon / max(1, QTot))
+
+    if pr == 'all':
+        row = (I, Treal, 100 * SCov / (SCov + SUnc),
+               100 * (2 * BFull + BPart) / (2 * BTot), SCov + SUnc,
+               100 * Ts / Treal, St, maxStates, avgStates,
+               Mem, maxMem, avgMem, QTot, AvgQC, 100 * Tcex / Treal,
+               100 * Tf / Treal, 100 * Tr / Treal, QCexMiss, QCexHits)
+    elif pr == 'reltime':
+        row = (Treal, 100 * T / Treal, 100 * Ts / Treal,
+               100 * Tcex / Treal, 100 * Tf / Treal,
+               100 * Tr / Treal)
+    elif pr == 'abstime':
+        row = (Treal, T, Ts, Tcex, Tf, Tr)
+    elif pr == 'more':
+        row = (I, Treal, 100 * SCov / (SCov + SUnc),
+               100 * (2 * BFull + BPart) / (2 * BTot),
+               SCov + SUnc, 100 * Ts / Treal,
+               St, maxStates, Mem, maxMem)
+    else:
+        row = (I, Treal, 100 * SCov / (SCov + SUnc),
+               100 * (2 * BFull + BPart) / (2 * BTot),
+               SCov + SUnc, 100 * Ts / Treal)
+    return row
+
+
+def grafana(dirs):
+    dr = getLogFile(dirs[0])
+    from flask import Flask, jsonify, request
+    import datetime
+    app = Flask(__name__)
+
+    import re
+    from dateutil import parser
+    def getKleeStartTime():
+        with open(getInfoFile(dirs[0]), "r") as file:
+            for line in file:
+                m = re.match("Started: (.*)", line)
+                if m:
+                    dateString = m.group(1)
+                    return parser.parse(dateString).timestamp()
+
+        print("Error: Couldn't find klee's start time", file=sys.stderr)
+        sys.exit()
+
+    def toEpoch(date_text):
+        dt = datetime.datetime.strptime(date_text, "%Y-%m-%dT%H:%M:%S.%fZ")
+        epoch = (dt - datetime.datetime(1970, 1, 1)).total_seconds()
+        return epoch
+
+    @app.route('/')
+    def status():
+        return 'OK'
+
+    @app.route('/search', methods=['GET', 'POST'])
+    def search():
+        conn = sqlite3.connect(dr)
+        cursor = conn.execute('SELECT * FROM stats')
+        names = [description[0] for description in cursor.description]
+        return jsonify(names)
+
+    @app.route('/query', methods=['POST'])
+    def query():
+        jsn = request.get_json()
+        interval = jsn["intervalMs"]
+        limit = jsn["maxDataPoints"]
+        frm = toEpoch(jsn["range"]["from"])
+        to = toEpoch(jsn["range"]["to"])
+        targets = [str(t["target"]) for t in jsn["targets"]]
+        startTime = getKleeStartTime()
+        fromTime = frm - startTime if frm - startTime > 0 else 0
+        toTime = to - startTime if to - startTime > fromTime else fromTime + 100
+        #convert to microseconds
+        startTime, fromTime, toTime = startTime*1000000, fromTime*1000000, toTime*1000000
+        sqlTarget = ",".join(["AVG( {0} )".format(t) for t in targets if t.isalnum()])
+
+        conn = sqlite3.connect(dr)
+
+        s = "SELECT WallTime + ? , {fields} " \
+            + " FROM stats" \
+            + " WHERE WallTime >= ? AND WallTime <= ?" \
+            + " GROUP BY WallTime/? LIMIT ?"
+        s = s.format(fields=sqlTarget) #can't use prepared staments for this one
+
+        #All times need to be in microseconds, interval is in milliseconds
+        cursor = conn.execute(s, ( startTime, fromTime, toTime, interval*1000, limit))
+        result = [ {"target": t, "datapoints": []} for t in targets ]
+        for line in cursor:
+            unixtimestamp = int(line[0]) / 1000 #Convert from microsecond to miliseconds
+            for field, datastream in zip(line[1:], result):
+                datastream["datapoints"].append([field, unixtimestamp])
+
+        ret = jsonify(result)
+        return ret
+
+    app.run()
+    return 0
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='output statistics logged by klee',
+        epilog='LEGEND\n' + tabulate(Legend),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument('dir', nargs='+', help='klee output directory')
+
+    parser.add_argument('--table-format',
+                          choices=['klee'] + list(_table_formats.keys()),
+                          dest='tableFormat', default='klee',
+                          help='Table format for the summary.')
+    parser.add_argument('--to-csv',
+                          action='store_true', dest='toCsv',
+                          help='Output stats as comma-separated values (CSV)')
+    parser.add_argument('--grafana',
+                          action='store_true', dest='grafana',
+                          help='Start a grafana web server')
+
+    # argument group for controlling output verboseness
+    pControl = parser.add_mutually_exclusive_group(required=False)
+    pControl.add_argument('--print-all',
+                          action='store_true', dest='pAll',
+                          help='Print all available information.')
+    pControl.add_argument('--print-rel-times',
+                          action='store_true', dest='pRelTimes',
+                          help='Print only values of measured times. '
+                          'Values are relative to the measured system '
+                          'execution time.')
+    pControl.add_argument('--print-abs-times',
+                          action='store_true', dest='pAbsTimes',
+                          help='Print only values of measured times. '
+                          'Absolute values (in seconds) are printed.')
+    pControl.add_argument('--print-more',
+                          action='store_true', dest='pMore',
+                          help='Print extra information (needed when '
+                          'monitoring an ongoing run).')
+
+    args = parser.parse_args()
+
+
+    # get print controls
+    pr = 'NONE'
+    if args.pAll:
+        pr = 'all'
+    elif args.pRelTimes:
+        pr = 'reltime'
+    elif args.pAbsTimes:
+        pr = 'abstime'
+    elif args.pMore:
+        pr = 'more'
+
+    dirs = getKleeOutDirs(args.dir)
+    if args.grafana:
+      return grafana(dirs)
+    if len(dirs) == 0:
+        print('no klee output dir found', file=sys.stderr)
+        exit(1)
+    # read contents from every run.stats file into LazyEvalList
+    data = [LazyEvalList(getLogFile(d)) for d in dirs]
+
+    if args.toCsv:
+        import csv
+        data = data[0]
+        c = data.conn.cursor()
+        sql3_cursor = c.execute("SELECT * FROM stats")
+        csv_out = csv.writer(sys.stdout)
+        # write header                        
+        csv_out.writerow([d[0] for d in sql3_cursor.description])
+        # write data                          
+        for result in sql3_cursor:
+          csv_out.writerow(result)
+        return
+
+    if len(data) > 1:
+        dirs = stripCommonPathPrefix(dirs)
+    # attach the stripped path
+    data = list(zip(dirs, data))
+
+    labels = getLabels(pr)
+
+    # build the main body of the table
+    table = []
+    totRecords = []  # accumulated records
+    totStats = []    # accumulated stats
+    for path, records in data:
+        row = [path]
+        stats = records.aggregateRecords()
+        totStats.append(stats)
+        row.extend(getRow(records.getLastRecord(), stats, pr))
+        totRecords.append(records.getLastRecord())
+        table.append(row)
+    # calculate the total
+    totRecords = [sum(e) for e in zip(*totRecords)]
+    totStats = [sum(e) for e in zip(*totStats)]
+    totalRow = ['Total ({0})'.format(len(table))]
+    totalRow.extend(getRow(totRecords, totStats, pr))
+
+    if len(data) > 1:
+        table.append(totalRow)
+    table.insert(0, labels)
+
+    if args.tableFormat != 'klee':
+        print(tabulate(
+            table, headers='firstrow',
+            tablefmt=args.tableFormat,
+            floatfmt='.{p}f'.format(p=2),
+            numalign='right', stralign='center'))
+    else:
+        stream = tabulate(
+            table, headers='firstrow',
+            tablefmt=KleeTable,
+            floatfmt='.{p}f'.format(p=2),
+            numalign='right', stralign='center')
+        # add a line separator before the total line
+        if len(data) > 1:
+            stream = stream.splitlines()
+            stream.insert(-2, stream[-1])
+            stream = '\n'.join(stream)
+        print(stream)
+
+   
+if __name__ == '__main__':
+    main()

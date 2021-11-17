@@ -1,4 +1,4 @@
-Learch: a Learning-based Strategies for Path Exploration in Symbolic Execution <a href="https://www.sri.inf.ethz.ch/"><img width="100" alt="portfolio_view" align="right" src="http://safeai.ethz.ch/img/sri-logo.svg"></a>
+Learch: a Learning-based Strategies for Path Exploration in Symbolic Execution
 =============================================================================================================
 
 Learch is a learning-based state selection strategy for symbolic execution. It can achieve significantly more coverage and detects more security violations than existing manual heuristics. Learch is instantiated on [KLEE](http://klee.github.io/). The directory `klee` contains our modified KLEE code (from [this commit](https://github.com/klee/klee/tree/95ce1601c380341ef3b1043644c66be754e345c0)) and `learch` contains the Learch code. Learch is developed at [SRI Lab, Department of Computer Science, ETH Zurich](https://www.sri.inf.ethz.ch/) as part of the [Machine Learning for Programming](https://www.sri.inf.ethz.ch/research/plml) project. For more details, please refer to [Learch CCS'21 paper](https://files.sri.inf.ethz.ch/website/papers/ccs21-learch.pdf).

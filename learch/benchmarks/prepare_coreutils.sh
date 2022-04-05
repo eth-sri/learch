@@ -27,9 +27,10 @@ find . -executable -type f | xargs -I '{}' extract-bc '{}'
 
 # build binaries with gcov
 # you can parallelize this part with standard parallelization tools like GNU parallel
-cd ../..
+cd ..
 cat ${PROG_LIST} | while read prog
 do
+    cd ..
     mkdir obj-gcov-${prog}
     cd obj-gcov-${prog}
     ../configure FORCE_UNSAFE_CONFIGURE=1 --disable-nls CFLAGS="-g -O0 -fprofile-arcs -ftest-coverage"

@@ -14,9 +14,9 @@ searcher_name=${items[0]}
 searcher_path=${items[1]}
 if [[ "${searcher_name}" == "feedforward" ]]; then
     searcher_options="--search=ml --model-type=feedforward --model-path=${searcher_path}"
-elif [[ "${searcher_name}" == "feedforward" ]]; then
+elif [[ "${searcher_name}" == "linear" ]]; then
     searcher_options="--search=ml --model-type=linear --model-path=${searcher_path}"
-elif [[ "${searcher_name}" == "feedforward" ]]; then
+elif [[ "${searcher_name}" == "rnn" ]]; then
     searcher_options="--search=ml --model-type=rnn --model-path=${searcher_path}"
 else
     searcher_options="--search=${searcher_name}"

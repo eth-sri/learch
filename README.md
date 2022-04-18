@@ -12,9 +12,9 @@ $ docker run -it learch
 
 ## Usages
 The following README files explains how to use Learch:
-* Obtaining the benchmarks used in the paper: [`benchmarks/README.md`](benchmarks/README.md).
-* Training Learch: [`train/README.md`](train/README.md).
-* Using Learch to test new programs: [`eval/README.md`](eval/README.md).
+* Obtaining the benchmarks used in the paper: [`learch/benchmarks/README.md`](learch/benchmarks/README.md).
+* Training Learch: [`learch/train/README.md`](learch/train/README.md).
+* Using Learch to test new programs: [`learch/eval/README.md`](learch/eval/README.md).
 
 ## Citing Learch
 ```

@@ -348,11 +348,9 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
         std::string filePath = debugLoc->getFilename();
         int line = debugLoc->getLine();
         std::string cov = directory + filePath + std::to_string(line);
-        if (cov.find("environment") != std::string::npos) {
-          if (ExecutionState::allCoveredSource.find(cov) == ExecutionState::allCoveredSource.end()) {
-            es.coveredSource.insert(cov);
-            ExecutionState::allCoveredSource.insert(cov);
-          }
+        if (ExecutionState::allCoveredSource.find(cov) == ExecutionState::allCoveredSource.end()) {
+          es.coveredSource.insert(cov);
+          ExecutionState::allCoveredSource.insert(cov);
         }
       }
       BasicBlock* block = inst->getParent();

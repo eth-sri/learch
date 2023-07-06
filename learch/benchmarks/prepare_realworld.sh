@@ -113,7 +113,7 @@ cd patch-2.7.6
 
 mkdir obj-llvm
 cd obj-llvm
-CC=wllvm CFLAGS="-g -O1 -Xclang -disable-llvm-passes -D__NO_STRING_INLINES -D_FORTIFY_SOURCE=0 -U__OPTIMIZE__ -fsanitize=signed-integer-overflow -fsanitize=unsigned-integer-overflow -fsanitize=shift -fsanitize=bounds -fsanitize=pointer-overflow -fsanitize=null" ../configure --disable-largefile
+CC=wllvm CFLAGS="-g -O1 -Xclang -disable-llvm-passes -D__NO_STRING_INLINES -D_FORTIFY_SOURCE=0 -U__OPTIMIZE__" ../configure --disable-largefile
 make -j${NUM_MAKE_CORES}
 cd src
 extract-bc patch
@@ -121,7 +121,7 @@ cd ../..
 
 mkdir obj-ubsan
 cd obj-ubsan
-CC=wllvm CFLAGS="-g -O1 -Xclang -disable-llvm-passes -D__NO_STRING_INLINES -D_FORTIFY_SOURCE=0 -U__OPTIMIZE__" ../configure --disable-largefile
+CC=wllvm CFLAGS="-g -O1 -Xclang -disable-llvm-passes -D__NO_STRING_INLINES -D_FORTIFY_SOURCE=0 -U__OPTIMIZE__ -fsanitize=signed-integer-overflow -fsanitize=unsigned-integer-overflow -fsanitize=shift -fsanitize=bounds -fsanitize=pointer-overflow -fsanitize=null" ../configure --disable-largefile
 make -j${NUM_MAKE_CORES}
 cd src
 extract-bc patch
